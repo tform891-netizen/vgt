@@ -7,12 +7,11 @@ import {
   DialogHeader,
   DialogTitle,
   DialogDescription,
-  DialogFooter,
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Loader2, ShieldCheck } from "lucide-react";
+import { Loader as Loader2, ShieldCheck, KeyRound, Copy, CircleCheck as CheckCircle2 } from "lucide-react";
 import { supabase } from "@/lib/supabase/client";
 import { useToast } from "@/hooks/use-toast";
 import type { Database } from "@/lib/types/database";
@@ -37,12 +36,16 @@ export function CreateStudentAccountDialog({
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [errors, setErrors] = useState<Record<string, string>>({});
+  const [createdPassword, setCreatedPassword] = useState<string | null>(null);
+  const [copied, setCopied] = useState(false);
 
   useEffect(() => {
     if (open) {
       setEmail(student?.email ?? "");
       setPassword("");
       setErrors({});
+      setCreatedPassword(null);
+      setCopied(false);
     }
   }, [open, student]);
 
@@ -50,7 +53,7 @@ export function CreateStudentAccountDialog({
     const e: Record<string, string> = {};
     if (!email.trim()) e.email = "L'email est requis";
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) e.email = "Email invalide";
-    if (password.length < 6) e.password = "Le mot de passe doit faire au moins 6 caractères";
+    if (password && password.length < 6) e.password = "Le mot de passe doit faire au moins 6 caractères";
     setErrors(e);
     return Object.keys(e).length === 0;
   };
@@ -72,21 +75,29 @@ export function CreateStudentAccountDialog({
           action: "link_student_account",
           student_id: student.id,
           email: email.trim(),
-          password,
+          ...(password ? { password } : {}),
         }),
       });
 
+      const data = await response.json();
       if (!response.ok) {
-        const err = await response.json();
-        throw new Error(err.error || "Erreur");
+        throw new Error(data.error || "Erreur");
       }
 
-      toast({
-        title: "Compte portail créé",
-        description: "L'étudiant peut désormais se connecter avec son email et mot de passe.",
-      });
-      onCreated?.();
-      onOpenChange(false);
+      if (data.temporary_password) {
+        setCreatedPassword(data.temporary_password);
+        toast({
+          title: "Compte portail créé",
+          description: "Un mot de passe temporaire a été généré. Communiquez-le à l'étudiant.",
+        });
+      } else {
+        toast({
+          title: "Compte portail créé",
+          description: "L'étudiant peut désormais se connecter.",
+        });
+        onCreated?.();
+        onOpenChange(false);
+      }
     } catch (err) {
       toast({
         title: "Erreur",
@@ -109,48 +120,89 @@ export function CreateStudentAccountDialog({
               : "Crée un compte Auth et le lie à cet étudiant."}
           </DialogDescription>
         </DialogHeader>
-        <form onSubmit={handleSubmit} className="space-y-4">
-          <div className="space-y-2">
-            <Label htmlFor="account_email">Email de connexion *</Label>
-            <Input
-              id="account_email"
-              type="email"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              disabled={loading}
-              placeholder="etudiant@email.com"
-            />
-            {errors.email && <p className="text-xs text-destructive">{errors.email}</p>}
+        {createdPassword ? (
+          <div className="space-y-4">
+            <div className="flex items-start gap-2 p-3 rounded-lg bg-green-50 border border-green-200 text-green-700 text-sm">
+              <CheckCircle2 className="w-4 h-4 mt-0.5 shrink-0" />
+              <span>
+                Le compte a été créé et lié à l'étudiant. Communiquez le mot de passe temporaire ci-dessous.
+                L'étudiant pourra le modifier après connexion.
+              </span>
+            </div>
+            <div className="space-y-2">
+              <Label>Email de connexion</Label>
+              <Input value={email} readOnly className="bg-muted" />
+            </div>
+            <div className="space-y-2">
+              <Label className="flex items-center gap-1"><KeyRound className="w-3 h-3" /> Mot de passe temporaire</Label>
+              <div className="flex gap-2">
+                <Input value={createdPassword} readOnly className="font-mono bg-muted" />
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => {
+                    navigator.clipboard.writeText(createdPassword);
+                    setCopied(true);
+                    setTimeout(() => setCopied(false), 2000);
+                  }}
+                >
+                  {copied ? <CheckCircle2 className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
+                </Button>
+              </div>
+            </div>
+            <div className="flex justify-end">
+              <Button type="button" variant="outline" onClick={() => { onCreated?.(); onOpenChange(false); }}>
+                Fermer
+              </Button>
+            </div>
           </div>
-          <div className="space-y-2">
-            <Label htmlFor="account_password">Mot de passe temporaire *</Label>
-            <Input
-              id="account_password"
-              type="password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              disabled={loading}
-              placeholder="Minimum 6 caractères"
-            />
-            {errors.password && <p className="text-xs text-destructive">{errors.password}</p>}
-          </div>
-          <div className="flex items-start gap-2 p-3 rounded-lg bg-muted text-sm text-muted-foreground">
-            <ShieldCheck className="w-4 h-4 mt-0.5 shrink-0" />
-            <span>
-              Le compte sera créé avec le rôle « Étudiant » et lié à l'institution de l'étudiant.
-              L'étudiant pourra se connecter et accéder à son portail.
-            </span>
-          </div>
-          <DialogFooter>
-            <Button type="button" variant="outline" onClick={() => onOpenChange(false)} disabled={loading}>
-              Annuler
-            </Button>
-            <Button type="submit" disabled={loading}>
-              {loading && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
-              Créer le compte
-            </Button>
-          </DialogFooter>
-        </form>
+        ) : (
+          <form onSubmit={handleSubmit} className="space-y-4">
+            <div className="space-y-2">
+              <Label htmlFor="account_email">Email de connexion *</Label>
+              <Input
+                id="account_email"
+                type="email"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                disabled={loading}
+                placeholder="etudiant@email.com"
+              />
+              {errors.email && <p className="text-xs text-destructive">{errors.email}</p>}
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="account_password">Mot de passe temporaire (optionnel)</Label>
+              <Input
+                id="account_password"
+                type="text"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                disabled={loading}
+                placeholder="Auto-généré si vide"
+              />
+              {errors.password && <p className="text-xs text-destructive">{errors.password}</p>}
+              <p className="text-xs text-muted-foreground">
+                Laissez vide pour générer automatiquement un mot de passe sécurisé.
+              </p>
+            </div>
+            <div className="flex items-start gap-2 p-3 rounded-lg bg-muted text-sm text-muted-foreground">
+              <ShieldCheck className="w-4 h-4 mt-0.5 shrink-0" />
+              <span>
+                Le compte sera créé avec le rôle « Étudiant », lié à cet étudiant existant
+                et à son institution. L'étudiant pourra se connecter et accéder à son portail.
+              </span>
+            </div>
+            <div className="flex justify-end gap-2">
+              <Button type="button" variant="outline" onClick={() => onOpenChange(false)} disabled={loading}>
+                Annuler
+              </Button>
+              <Button type="submit" disabled={loading}>
+                {loading && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
+                Créer le compte
+              </Button>
+            </div>
+          </form>
+        )}
       </DialogContent>
     </Dialog>
   );

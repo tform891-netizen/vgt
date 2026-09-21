@@ -7,9 +7,22 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "Content-Type, Authorization, X-Client-Info, Apikey",
 };
 
+function generateTempPassword(): string {
+  const chars = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789";
+  const segments: string[] = [];
+  for (let s = 0; s < 3; s++) {
+    let seg = "";
+    for (let i = 0; i < 4; i++) {
+      seg += chars[Math.floor(Math.random() * chars.length)];
+    }
+    segments.push(seg);
+  }
+  return segments.join("-");
+}
+
 interface CreateUserData {
   email: string;
-  password: string;
+  password?: string;
   first_name: string;
   last_name: string;
   phone?: string;
@@ -31,13 +44,13 @@ interface ToggleActiveData {
 interface LinkStudentData {
   student_id: string;
   email: string;
-  password: string;
+  password?: string;
 }
 
 interface LinkStaffAccountData {
   staff_id: string;
   email: string;
-  password: string;
+  password?: string;
   role_code: string;
 }
 
@@ -101,16 +114,18 @@ Deno.serve(async (req: Request) => {
     if (action === "create_user") {
       const data = body as CreateUserData;
 
-      if (!data.email || !data.password || !data.first_name || !data.last_name || !data.institution_id || !data.role_code) {
+      if (!data.email || !data.first_name || !data.last_name || !data.institution_id || !data.role_code) {
         return new Response(JSON.stringify({ error: "Missing required fields" }), {
           status: 400,
           headers: { ...corsHeaders, "Content-Type": "application/json" },
         });
       }
 
+      const password = data.password && data.password.length >= 6 ? data.password : generateTempPassword();
+
       const { data: authData, error: authError } = await adminClient.auth.admin.createUser({
         email: data.email,
-        password: data.password,
+        password,
         email_confirm: true,
         user_metadata: {
           first_name: data.first_name,
@@ -123,14 +138,14 @@ Deno.serve(async (req: Request) => {
 
       const { error: profileError } = await adminClient
         .from("profiles")
-        .insert({
+        .upsert({
           id: newUserId,
           institution_id: data.institution_id,
           first_name: data.first_name,
           last_name: data.last_name,
           phone: data.phone || null,
           is_active: true,
-        });
+        }, { onConflict: "id" });
 
       if (profileError) throw profileError;
 
@@ -157,7 +172,7 @@ Deno.serve(async (req: Request) => {
 
       if (roleError) throw roleError;
 
-      return new Response(JSON.stringify({ user_id: newUserId, success: true }), {
+      return new Response(JSON.stringify({ user_id: newUserId, success: true, temporary_password: password }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
@@ -309,7 +324,7 @@ Deno.serve(async (req: Request) => {
     if (action === "link_student_account") {
       const data = body as LinkStudentData;
 
-      if (!data.student_id || !data.email || !data.password) {
+      if (!data.student_id || !data.email) {
         return new Response(JSON.stringify({ error: "Missing required fields" }), {
           status: 400,
           headers: { ...corsHeaders, "Content-Type": "application/json" },
@@ -358,9 +373,11 @@ Deno.serve(async (req: Request) => {
         });
       }
 
+      const password = data.password && data.password.length >= 6 ? data.password : generateTempPassword();
+
       const { data: authData, error: authError } = await adminClient.auth.admin.createUser({
         email: data.email,
-        password: data.password,
+        password,
         email_confirm: true,
         user_metadata: {
           first_name: student.first_name ?? "",
@@ -373,13 +390,13 @@ Deno.serve(async (req: Request) => {
 
       const { error: profileError } = await adminClient
         .from("profiles")
-        .insert({
+        .upsert({
           id: newUserId,
           institution_id: student.institution_id,
           first_name: student.first_name ?? "",
           last_name: student.last_name ?? "",
           is_active: true,
-        });
+        }, { onConflict: "id" });
 
       if (profileError) {
         await adminClient.auth.admin.deleteUser(newUserId);
@@ -395,7 +412,6 @@ Deno.serve(async (req: Request) => {
         });
 
       if (roleError) {
-        await adminClient.from("profiles").delete().eq("id", newUserId);
         await adminClient.auth.admin.deleteUser(newUserId);
         throw roleError;
       }
@@ -408,12 +424,11 @@ Deno.serve(async (req: Request) => {
 
       if (linkError) {
         await adminClient.from("user_roles").delete().eq("user_id", newUserId);
-        await adminClient.from("profiles").delete().eq("id", newUserId);
         await adminClient.auth.admin.deleteUser(newUserId);
         throw linkError;
       }
 
-      return new Response(JSON.stringify({ user_id: newUserId, success: true }), {
+      return new Response(JSON.stringify({ user_id: newUserId, success: true, temporary_password: password }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
@@ -421,7 +436,7 @@ Deno.serve(async (req: Request) => {
     if (action === "link_staff_account") {
       const data = body as LinkStaffAccountData;
 
-      if (!data.staff_id || !data.email || !data.password || !data.role_code) {
+      if (!data.staff_id || !data.email || !data.role_code) {
         return new Response(JSON.stringify({ error: "Missing required fields" }), {
           status: 400,
           headers: { ...corsHeaders, "Content-Type": "application/json" },
@@ -478,9 +493,11 @@ Deno.serve(async (req: Request) => {
         });
       }
 
+      const password = data.password && data.password.length >= 6 ? data.password : generateTempPassword();
+
       const { data: authData, error: authError } = await adminClient.auth.admin.createUser({
         email: data.email,
-        password: data.password,
+        password,
         email_confirm: true,
         user_metadata: {
           first_name: staffRow.first_name ?? "",
@@ -493,13 +510,13 @@ Deno.serve(async (req: Request) => {
 
       const { error: profileError } = await adminClient
         .from("profiles")
-        .insert({
+        .upsert({
           id: newUserId,
           institution_id: staffRow.institution_id,
           first_name: staffRow.first_name ?? "",
           last_name: staffRow.last_name ?? "",
           is_active: true,
-        });
+        }, { onConflict: "id" });
 
       if (profileError) {
         await adminClient.auth.admin.deleteUser(newUserId);
@@ -515,7 +532,6 @@ Deno.serve(async (req: Request) => {
         });
 
       if (roleError) {
-        await adminClient.from("profiles").delete().eq("id", newUserId);
         await adminClient.auth.admin.deleteUser(newUserId);
         throw roleError;
       }
@@ -528,12 +544,11 @@ Deno.serve(async (req: Request) => {
 
       if (linkError) {
         await adminClient.from("user_roles").delete().eq("user_id", newUserId);
-        await adminClient.from("profiles").delete().eq("id", newUserId);
         await adminClient.auth.admin.deleteUser(newUserId);
         throw linkError;
       }
 
-      return new Response(JSON.stringify({ user_id: newUserId, success: true }), {
+      return new Response(JSON.stringify({ user_id: newUserId, success: true, temporary_password: password }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
@@ -652,4 +667,3 @@ Deno.serve(async (req: Request) => {
     );
   }
 });
-
