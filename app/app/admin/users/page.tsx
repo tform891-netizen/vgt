@@ -27,7 +27,7 @@ import {
 import { useToast } from "@/hooks/use-toast";
 import { supabase } from "@/lib/supabase/client";
 import type { Database } from "@/lib/types/database";
-import { Plus, Search, MoveHorizontal as MoreHorizontal, UserCog, Loader as Loader2, ShieldCheck, Mail, Copy, KeyRound, CircleCheck as CheckCircle2 } from "lucide-react";
+import { Plus, Search, MoveHorizontal as MoreHorizontal, UserCog, Loader as Loader2, ShieldCheck, Mail } from "lucide-react";
 
 type Profile = Database["public"]["Tables"]["profiles"]["Row"];
 
@@ -405,8 +405,6 @@ function CreateUserDialog({
   const [phone, setPhone] = useState("");
   const [roleCode, setRoleCode] = useState("");
   const [errors, setErrors] = useState<Record<string, string>>({});
-  const [createdPassword, setCreatedPassword] = useState<string | null>(null);
-  const [copied, setCopied] = useState(false);
 
   const isSuperAdmin = currentUserRoles.includes("super_admin");
 
@@ -414,8 +412,6 @@ function CreateUserDialog({
     if (open) {
       setEmail(""); setPassword(""); setFirstName(""); setLastName(""); setPhone(""); setRoleCode("");
       setErrors({});
-      setCreatedPassword(null);
-      setCopied(false);
     }
   }, [open]);
 
@@ -423,7 +419,7 @@ function CreateUserDialog({
     const e: Record<string, string> = {};
     if (!email.trim()) e.email = "L'email est requis";
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) e.email = "Email invalide";
-    if (password && password.length < 6) e.password = "Le mot de passe doit faire au moins 6 caractères";
+    if (password.length < 6) e.password = "Le mot de passe doit faire au moins 6 caractères";
     if (!firstName.trim()) e.firstName = "Le prénom est requis";
     if (!lastName.trim()) e.lastName = "Le nom est requis";
     if (!roleCode) e.roleCode = "Le rôle est requis";
@@ -464,14 +460,9 @@ function CreateUserDialog({
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || "Erreur lors de la création");
 
-      if (data.temporary_password) {
-        setCreatedPassword(data.temporary_password);
-        toast({ title: "Utilisateur créé", description: "Un mot de passe temporaire a été généré. Communiquez-le à l'utilisateur." });
-      } else {
-        toast({ title: "Utilisateur créé", description: `${firstName} ${lastName} peut maintenant se connecter.` });
-        onSaved();
-        onOpenChange(false);
-      }
+      toast({ title: "Utilisateur créé", description: `${firstName} ${lastName} peut maintenant se connecter.` });
+      onSaved();
+      onOpenChange(false);
     } catch (err) {
       toast({ title: "Erreur", description: err instanceof Error ? err.message : "Une erreur est survenue.", variant: "destructive" });
     } finally {
@@ -506,14 +497,13 @@ function CreateUserDialog({
           </div>
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-2">
-              <Label htmlFor="nu-password">Mot de passe temporaire (optionnel)</Label>
-              <Input id="nu-password" type="text" value={password} onChange={(e) => setPassword(e.target.value)} disabled={loading || !!createdPassword} placeholder="Auto-généré si vide" />
+              <Label htmlFor="nu-password">Mot de passe *</Label>
+              <Input id="nu-password" type="password" value={password} onChange={(e) => setPassword(e.target.value)} disabled={loading} />
               {errors.password && <p className="text-xs text-destructive">{errors.password}</p>}
-              <p className="text-xs text-muted-foreground">Laissez vide pour générer automatiquement un mot de passe.</p>
             </div>
             <div className="space-y-2">
               <Label htmlFor="nu-phone">Téléphone</Label>
-              <Input id="nu-phone" value={phone} onChange={(e) => setPhone(e.target.value)} disabled={loading || !!createdPassword} placeholder="+221 ..." />
+              <Input id="nu-phone" value={phone} onChange={(e) => setPhone(e.target.value)} disabled={loading} placeholder="+221 ..." />
             </div>
           </div>
           <div className="space-y-2">
@@ -535,47 +525,14 @@ function CreateUserDialog({
             </Select>
             {errors.roleCode && <p className="text-xs text-destructive">{errors.roleCode}</p>}
           </div>
-          {createdPassword ? (
-            <div className="space-y-4">
-              <div className="flex items-start gap-2 p-3 rounded-lg bg-green-50 border border-green-200 text-green-700 text-sm">
-                <CheckCircle2 className="w-4 h-4 mt-0.5 shrink-0" />
-                <span>Le compte a été créé. Communiquez le mot de passe temporaire ci-dessous à l'utilisateur. Il pourra le modifier après connexion.</span>
-              </div>
-              <div className="space-y-2">
-                <Label>Email de connexion</Label>
-                <Input value={email} readOnly className="bg-muted" />
-              </div>
-              <div className="space-y-2">
-                <Label className="flex items-center gap-1"><KeyRound className="w-3 h-3" /> Mot de passe temporaire</Label>
-                <div className="flex gap-2">
-                  <Input value={createdPassword} readOnly className="font-mono bg-muted" />
-                  <Button
-                    type="button"
-                    variant="outline"
-                    onClick={() => {
-                      navigator.clipboard.writeText(createdPassword);
-                      setCopied(true);
-                      setTimeout(() => setCopied(false), 2000);
-                    }}
-                  >
-                    {copied ? <CheckCircle2 className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
-                  </Button>
-                </div>
-              </div>
-              <DialogFooter>
-                <Button type="button" variant="outline" onClick={() => { onSaved(); onOpenChange(false); }}>Fermer</Button>
-              </DialogFooter>
-            </div>
-          ) : (
-            <DialogFooter>
-              <Button type="button" variant="outline" onClick={() => onOpenChange(false)} disabled={loading}>Annuler</Button>
-              <Button type="submit" disabled={loading}>
-                {loading && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
-                <Mail className="w-4 h-4 mr-2" />
-                Créer le compte
-              </Button>
-            </DialogFooter>
-          )}
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={() => onOpenChange(false)} disabled={loading}>Annuler</Button>
+            <Button type="submit" disabled={loading}>
+              {loading && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
+              <Mail className="w-4 h-4 mr-2" />
+              Créer le compte
+            </Button>
+          </DialogFooter>
         </form>
       </DialogContent>
     </Dialog>
